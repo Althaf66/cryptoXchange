@@ -43,7 +43,6 @@ cd cryptoXchange
 ### 2. Set Up Environment
 
 ```bash
-# Install Go dependencies
 go mod tidy
 ```
 
@@ -59,26 +58,23 @@ go mod tidy
 2. **Start the API server:**
    ```bash
    cd cmd/api
-   air  # or go run . for manual restart
+   go run .
    ```
 
 3. **Start the trading engine:**
    ```bash
-   # Open a new terminal
    cd cmd/engine
    go run .
    ```
 
 4. **Start the WebSocket server:**
    ```bash
-   # Open a new terminal
    cd cmd/websocket
    go run .
    ```
 
 5. **Start the frontend:**
    ```bash
-   # Open a new terminal
    cd frontend
    npm install
    npm run dev
