@@ -144,4 +144,3 @@ go mod tidy
 #### To get all past trades
 
 - Send GET request to http://localhost:8080/v1/trades
-```
