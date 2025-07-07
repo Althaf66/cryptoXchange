@@ -15,9 +15,9 @@ A high-performance cryptocurrency exchange platform built with Go and Next.js, f
 
 CryptoXchange is a full-stack cryptocurrency trading platform that provides:
 
-- **Real-time Order Matching**: High-performance order book engine for efficient trade execution
-- **WebSocket Integration**: Live price feeds and order updates
-- **Modern UI**: Responsive Next.js frontend with TradingView-style charts
+- **Real-time Order Matching**: High-performance order book engine for efficient trade execution.
+- **WebSocket Integration**: Live price feeds and order updates.
+- **Modern UI**: Responsive Next.js frontend with candlestick view style charts.
 
 ## ✨ Features
 
@@ -48,7 +48,7 @@ go mod tidy
 
 ## 🚀 Getting Started
 
-### Quick Start (Recommended)
+### Quick Start
 
 1. **Start the database services:**
    ```bash
@@ -87,7 +87,7 @@ go mod tidy
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| Frontend | http://localhost:3000 | Main trading interface |
+| Frontend | http://localhost:3000/trade/SOL_USD | Main trading interface |
 | API Server | http://localhost:8080/v1 | REST API endpoints |
 | WebSocket | ws://localhost:3001/v1/ws | Real-time data feed |
 | Database | localhost:5432 | PostgreSQL (TimescaleDB) |
