@@ -284,7 +284,11 @@ func (e *Engine) CreateOrder(market, priceStr, quantityStr, side, userID string)
 		UserID:   userID,
 	}
 
-	executedQty, fills := orderbook.AddOrder(order)
+	executedQty, fills, err := orderbook.AddOrder(order)
+	if err != nil {
+		log.Printf("Error adding order: %v", err)
+		return 0, nil, ""
+	}
 	e.UpdateBalance(userID, baseAsset, quoteAsset, side, fills, executedQty)
 
 	e.CreateDbTrades(fills, market, userID)
@@ -504,100 +508,11 @@ func (e *Engine) publishWSDepthUpdates(fills []Fill, price, side, market string)
 	updatedAsks := make([][2]string, len(depth.Asks))
 	copy(updatedAsks, depth.Asks)
 
-	// Create a map of fill prices and quantities
-	fillMap := make(map[string]string)
-	for _, fill := range fills {
-		fillMap[fill.Price] = fmt.Sprint(fill.Qty)
-	}
-
-	// Update quantities for matched prices
-	if side == "buy" {
-		// For buy orders, update asks (since buy orders match against asks)
-		for i, ask := range updatedAsks {
-			if qty, exists := fillMap[ask[0]]; exists {
-				// Reduce quantity based on fill
-				currentQty, _ := strconv.ParseFloat(ask[1], 64)
-				fillQty, _ := strconv.ParseFloat(qty, 64)
-				newQty := currentQty - fillQty
-				if newQty <= 0 {
-					updatedAsks[i][1] = "0.00"
-				} else {
-					updatedAsks[i][1] = fmt.Sprintf("%.2f", newQty)
-				}
-			}
-			// Update bid if it matches the specified price
-			if ask[0] == price {
-				updatedAsks[i][1] = "0.00" // Assume the order consumes the level
-			}
-		}
-		// Update bids if the buy order adds a new bid
-		if qty, exists := fillMap[price]; exists && side == "buy" {
-			found := false
-			for i, bid := range updatedBids {
-				if bid[0] == price {
-					updatedBids[i][1] = qty // Update with new quantity
-					found = true
-					break
-				}
-			}
-			if !found {
-				updatedBids = append(updatedBids, [2]string{price, qty})
-			}
-		}
-	} else if side == "sell" {
-		// For sell orders, update bids (since sell orders match against bids)
-		for i, bid := range updatedBids {
-			if qty, exists := fillMap[bid[0]]; exists {
-				// Reduce quantity based on fill
-				currentQty, _ := strconv.ParseFloat(bid[1], 64)
-				fillQty, _ := strconv.ParseFloat(qty, 64)
-				newQty := currentQty - fillQty
-				if newQty <= 0 {
-					updatedBids[i][1] = "0.00"
-				} else {
-					updatedBids[i][1] = fmt.Sprintf("%.2f", newQty)
-				}
-			}
-			// Update ask if it matches the specified price
-			if bid[0] == price {
-				updatedBids[i][1] = "0.00" // Assume the order consumes the level
-			}
-		}
-		// Update asks if the sell order adds a new ask
-		if qty, exists := fillMap[price]; exists && side == "sell" {
-			found := false
-			for i, ask := range updatedAsks {
-				if ask[0] == price {
-					updatedAsks[i][1] = qty // Update with new quantity
-					found = true
-					break
-				}
-			}
-			if !found {
-				updatedAsks = append(updatedAsks, [2]string{price, qty})
-			}
-		}
-	}
-
-	// Filter out zero-quantity levels
-	filteredBids := [][2]string{}
-	for _, bid := range updatedBids {
-		if bid[1] != "0" && bid[1] != "0.00" {
-			filteredBids = append(filteredBids, bid)
-		}
-	}
-	filteredAsks := [][2]string{}
-	for _, ask := range updatedAsks {
-		if ask[1] != "0" && ask[1] != "0.00" {
-			filteredAsks = append(filteredAsks, ask)
-		}
-	}
-
 	message := WsMessage{
 		Stream: fmt.Sprintf("depth@%s", market),
 		Data: &DepthData{
-			B: filteredBids,
-			A: filteredAsks,
+			B: updatedBids,
+			A: updatedAsks,
 			E: "depth",
 		},
 	}
