@@ -6,7 +6,7 @@ A high-performance cryptocurrency exchange platform built with Go and Next.js, f
 
 - [Overview](#-overview)
 - [Features](#-features)
-- [Architecture](#-architecture)
+- [Architecture](#%EF%B8%8F-architecture)
 - [Installation](#-installation)
 - [Getting Started](#-getting-started)
 - [API Documentation](#-api-documentation)
