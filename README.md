@@ -1,42 +1,79 @@
 # CryptoXchange 📊
 
-A spot cryptocurrency exchange built with Go and Next.js: a real price-time
-matching engine, live order book and trade streams over WebSocket, and a trading
-UI you can actually place orders from.
+A real spot crypto exchange, minus the crypto. Place a limit order, watch it hit
+the book, get filled by a live counterparty, see the trade print on the tape
+and the candle move — all in seconds.
 
 ## 📋 Table of Contents
 
-- [Overview](#-overview)
+- [Live Demo](#-live-demo)
+- [What is this?](#-what-is-this)
 - [Features](#-features)
+- [Overview](#-overview)
+- [Tech Stack](#%EF%B8%8F-tech-stack)
 - [Architecture](#%EF%B8%8F-architecture)
 - [Getting Started](#-getting-started)
-- [Demo Walkthrough](#-demo-walkthrough)
-- [API Documentation](#-api-documentation)
+- [How to Use](#-how-to-use)
+- [Deployment on Zerops](#-deployment-on-zerops)
 
-## 🔍 Overview
+## 🔴 Live Demo
 
-Four services talk to each other over Redis and Postgres:
+**https://frontend-2e5c-3000.prg1.zerops.app/**
 
-| Service | Role |
-|---|---|
-| `cmd/api` | REST API. Forwards order commands to the engine over a Redis list and waits for the reply on a pub/sub channel. |
-| `cmd/engine` | Single-threaded matching engine. Owns the order book **and** all balances; snapshots to disk every 5s. |
-| `cmd/websocket` | Fans out `depth@{market}` and `trade@{market}` streams to browsers. |
-| `internal/kline` | Consumes executed trades off Redis into TimescaleDB, which rolls them into 1m/1h/1w candles. |
+Running live on Zerops - no signup, just pick a demo user and start trading.
+
+## 🔍 What is this?
+
+CryptoXchange is a full spot exchange built from scratch: a single-threaded
+price-time matching engine, a real balance ledger (funds actually lock and
+unlock), live order book/trade streams over WebSocket, and a Next.js trading
+UI with TradingView-style candlestick charts. There's no mocked backend and no
+fake order book — every fill, partial fill, and balance change comes out of
+the same engine you'd need for a real exchange. It's built as a demo/learning
+project, so it ships with instant demo users instead of a signup flow and a
+market maker bot that keeps the book from looking dead.
 
 ### 🎥 Demo Video
    https://www.loom.com/share/bbcc2ea1986a43c394a52d03af7973ef
-   
+
 ## ✨ Features
 
-- **Price-time priority matching** with fractional quantities, partial fills, and
-  fills across multiple price levels
+- **Price-time priority matching** with fractional quantities, partial fills,
+  and fills across multiple price levels
 - **Limit and market orders** - market orders sweep the book and never rest
-- **Real balance accounting**: funds are locked on order placement, released on
-  cancel, and any surplus from filling at a better price is refunded
+- **Real balance accounting**: funds are locked on order placement, released
+  on cancel, and any surplus from filling at a better price is refunded
 - **Live order book and trade tape** over WebSocket
-- **TradingView-style candlestick charts** backed by TimescaleDB continuous rollups
-- **Crash-safe**: the engine restores its book and balances from a snapshot on boot
+- **TradingView-style candlestick charts** backed by TimescaleDB continuous
+  rollups
+- **Crash-safe**: the engine restores its book and balances from a snapshot
+  on boot
+- **JWT-based signup/login**, plus a demo mode that skips auth entirely via
+  instant virtual users
+- **Multi-market**: SOL, BTC, ETH, DOGE, ADA, all USD-quoted
+- **Self-sustaining demo markets** - a market maker bot keeps resting depth
+  and trade history alive with no real users needed
+- **Deploy-anywhere**: Docker Compose for local dev, Zerops config included
+  for one-command cloud deployment
+
+## 🏗️ Overview
+
+Five pieces talk to each other over Redis and Postgres:
+
+| Service | Role |
+|---|---|
+| `cmd/api` | REST API. Forwards order commands to the engine over a Redis list and waits for the reply on a pub/sub channel. Also runs the kline data processor as a background goroutine. |
+| `cmd/engine` | Single-threaded matching engine. Owns the order book **and** all balances; snapshots to disk every 5s. |
+| `cmd/websocket` | Fans out `depth@{market}` and `trade@{market}` streams to browsers. |
+| `cmd/marketmaker` | Demo-only bot. Every tick, re-centers a bid/ask ladder and prints a few trades against its own accounts so the book and charts stay alive with no real users trading. |
+| `internal/kline` | Runs inside `cmd/api`; consumes executed trades off Redis into TimescaleDB, which rolls them into 1m/1h candles. |
+
+## 🛠️ Tech Stack
+
+- **Backend**: Go 1.24 — `gorilla/mux`, `go-redis`, `lib/pq`, `golang-jwt`, `zap`
+- **Frontend**: Next.js 14, React 18, TypeScript, Tailwind CSS, `lightweight-charts`
+- **Data**: TimescaleDB (Postgres) for durable state and candles, Redis for the command bus and pub/sub
+- **Deployment**: Docker Compose (local), Zerops (cloud)
 
 ## 🏗️ Architecture
 
@@ -50,9 +87,9 @@ Four services talk to each other over Redis and Postgres:
 docker compose up -d --build
 ```
 
-That brings up TimescaleDB, Redis, the API, the matching engine and the
-WebSocket server. The engine's snapshot lives in a named volume, so restarts
-keep the order book and balances.
+That brings up TimescaleDB, Redis, the API, the matching engine, the
+WebSocket server, and the market maker bot. The engine's snapshot lives in a
+named volume, so restarts keep the order book and balances.
 
 <details>
 <summary>Or run the Go services from source</summary>
@@ -62,6 +99,7 @@ docker compose up -d db redis    # infrastructure only
 go run ./cmd/api                 # each in its own terminal
 go run ./cmd/engine
 go run ./cmd/websocket
+go run ./cmd/marketmaker
 ```
 </details>
 
@@ -76,8 +114,8 @@ cd frontend && npm install && npm run dev
 
 ### 3. Seed a market
 
-An empty order book is a bad first impression. This places resting depth around
-200.00 and executes a few trades so the chart has history:
+An empty order book is a bad first impression. This places resting depth
+around 200.00 and executes a few trades so the chart has history:
 
 ```bash
 go run ./script/seed
@@ -95,74 +133,34 @@ http://localhost:3000/trade/SOL_USD
 | Database | localhost:5432 |
 | Redis | localhost:6379 |
 
-## 🎬 Demo Walkthrough
+## 🎬 How to Use
 
-The engine seeds demo users `1`, `2` and `5` with balances on first boot. Pick
-one from the **Trading as** dropdown in the top right - no login needed.
+No signup needed - pick a demo user from the **Trading as** dropdown and
+start trading:
 
-Open two browser windows side by side:
+- Place a **limit** order and watch it rest on the book instantly
+- Place a **market** order and watch it sweep whatever liquidity is available
+- Fill someone else's order by clicking a price level in the book
+- Watch the trade tape and candlestick chart update live as fills happen
+- Cancel an open order and see the locked balance return to available
+- Try over-spending and get a real `insufficient funds` rejection from the
+  engine, not a UI-only check
+- Credit an account through the onramp endpoint if you want more balance to
+  play with
 
-1. **Window A, demo user 1** - place a limit **sell** of `1.5` SOL at `205`.
-   It appears immediately in the ask side of both windows, and user 1's SOL
-   balance moves from *available* to *locked*.
-2. **Window B, demo user 2** - click the `205` level in the order book to fill
-   the price, enter `0.5`, and **Buy**. The trade prints in the tape in both
-   windows, the ask level shrinks to `1.00`, and both balances update.
-3. **Window A** - the remaining `1.0` shows under **Open orders**. Hit **Cancel**
-   and watch the locked SOL return to available.
-4. **Window B** - switch the order type to **Market** and buy `2` SOL. It sweeps
-   whatever the book holds and refunds the rest of the lock rather than resting.
-5. Try to buy more than the account can afford - the UI shows
-   *"insufficient USD: need X, have Y"* straight from the engine.
+## ☁️ Deployment on Zerops
 
-## 📚 API Documentation
+The [live demo](#-live-demo) runs entirely on [Zerops](https://zerops.io).
+Locally, `docker-compose.yaml` brings up the full stack in one command; in the
+cloud, `zerops.yml` + `zerops-project-import.yml` bring up the same seven
+services from a single `zcli project project-import` - no manual clicking
+through a dashboard.
 
-Base URL: `http://localhost:8080/v1`
+A few things about the setup worth calling out:
 
-### Orders
-
-`POST /order`
-
-```json
-{
-  "market": "SOL_USD",
-  "price": "200",
-  "quantity": "0.5",
-  "side": "buy",
-  "type": "limit",
-  "userId": "1"
-}
-```
-
-Returns `201` with `{orderId, executedQty, fills}`. A rejected order returns
-`400`/`404` with `{error, code}` - codes are `INSUFFICIENT_FUNDS`,
-`INVALID_ORDER`, `NO_LIQUIDITY`, `NO_ORDERBOOK`.
-
-Market orders ignore `price`; the engine reprices them through the far side of
-the book and drops any unfilled remainder.
-
-| Endpoint | Description |
-|---|---|
-| `DELETE /order` | Cancel an order: `{orderId, market}` |
-| `GET /order/open?userId=&market=` | Open orders for a user |
-| `GET /depth?market=` | Aggregated order book |
-| `GET /balance/{userId}` | Available and locked balance per asset (from the engine) |
-| `POST /onramp` | Credit an account: `{userId, amount}` |
-| `GET /tickers` | 24h rollup per market |
-| `GET /trades?market=&limit=` | Recent executed trades |
-| `GET /klines/{interval}` | Candles: `1m`, `1h`, `1w` |
-| `POST /authentication/user` | Signup |
-| `POST /authentication/token` | Login, returns a JWT |
-
-> The UI runs in demo mode and selects a user from a dropdown rather than logging
-> in. Signup and login are implemented and work; `/users/{id}` is token-protected.
-
-## 🧪 Tests
-
-```bash
-go test ./cmd/engine/
-```
-
-Covers the matching and balance math: fractional partial fills, fills across
-multiple price levels, cancel refunds, insufficient-funds rejection, and market
-order behaviour.
+- **7 services, one import**: TimescaleDB, Redis (managed Valkey), API,
+  matching engine, WebSocket server, market maker, and the Next.js frontend
+  all deploy together.
+- **The engine's snapshot survives redeploys**: it writes to Zerops shared
+  storage (`/mnt/snapshots`) instead of local disk, and the engine is pinned
+  to a single instance since its order book and balances live in memory.
