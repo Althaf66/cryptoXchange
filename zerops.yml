@@ -1,0 +1,185 @@
+# Build and run config per service. Infrastructure lives in
+# zerops-project-import.yml. The Dockerfile is not used by Zerops — it stays
+# for local `docker compose up`.
+#
+# JWT_SECRET is a project-level variable (see the import file) and is inherited
+# by every service automatically, so it is deliberately not declared here.
+zerops:
+  # --- TimescaleDB -----------------------------------------------------------
+  # Runs the official image as a Zerops Docker service, because Zerops has no
+  # managed TimescaleDB and its managed postgresql cannot load the extension.
+  #
+  # Persistence: the named volume `pgdata` lives in the VM's docker storage, so
+  # it survives container restarts and redeploys of this service. It does NOT
+  # survive deleting the service, and Zerops takes no automatic backups of it —
+  # unlike a managed database. Set up your own `pg_dump` before this holds
+  # anything you care about.
+  - setup: db
+    run:
+      base: alpine/docker@26
+      prepareCommands:
+        # Zerops' internal resolver times out on external names from this
+        # container, so prepend a public one while keeping the internal one as
+        # a fallback for service hostnames. dockerd reads /etc/resolv.conf per
+        # lookup, so no daemon restart is needed.
+        # The three `|| true` lines are diagnostics: if the pull still fails,
+        # their output says whether outbound DNS works at all from here.
+        - cat /etc/resolv.conf || true
+        - cp /etc/resolv.conf /tmp/resolv.orig || true
+        - printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' | cat - /tmp/resolv.orig > /etc/resolv.conf || true
+        - cat /etc/resolv.conf || true
+        - getent hosts registry-1.docker.io || true
+        - docker image pull timescale/timescaledb-ha:pg17
+      ports:
+        - port: 5432
+      # --network=host is required by Zerops: it manages the ports itself, and
+      # docker's own publishing would double-expose them.
+      # --rm so a restart doesn't collide with the previous container's name.
+      #
+      # POSTGRES_PASSWORD only takes effect when initdb runs against an EMPTY
+      # pgdata volume. Changing the project variable later does nothing — the
+      # role keeps the password the volume was created with, and the api fails
+      # with "password authentication failed for user admin". To rotate it,
+      # either ALTER USER inside the container or delete the volume.
+      start: >
+        docker run --rm --name pgdata-container --network=host
+        -v pgdata:/var/lib/postgresql/data
+        -e POSTGRES_USER=admin
+        -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+        -e POSTGRES_DB=cryptoXchange
+        timescale/timescaledb-ha:pg17
+
+  # --- API -------------------------------------------------------------------
+  - setup: api
+    build:
+      base: alpine/go@1
+      buildCommands:
+        - go build -ldflags="-s -w" -o app ./cmd/api
+      deployFiles:
+        - app
+      cache:
+        - go.mod
+        - go.sum
+    run:
+      base: alpine/go@1
+      ports:
+        - port: 8080
+          httpSupport: true
+      start: ./app
+      # cmd/api/main.go refuses to boot when ENV != development and any of
+      # DB_ADDR / REDIS_ADDR / JWT_SECRET / FRONTEND_URL is unset, rather than
+      # silently falling back to localhost defaults.
+      envVariables:
+        ENV: production
+        PORT: :8080
+        # A Docker service generates no connectionString — the credentials are
+        # the ones the db service's `docker run` was given. POSTGRES_PASSWORD is
+        # a project-level variable so both sides read the same value.
+        DB_ADDR: postgres://admin:${POSTGRES_PASSWORD}@${db_hostname}:5432/cryptoXchange?sslmode=disable
+        REDIS_ADDR: ${redis_connectionString}
+        # Must match the frontend's origin exactly — scheme + host, no trailing
+        # slash. It is the single allowed CORS origin (cmd/api/api.go:53), so a
+        # mismatch makes every browser call fail with no server-side error.
+        # zeropsSubdomain already includes the https:// scheme; do not prefix it.
+        FRONTEND_URL: ${frontend_zeropsSubdomain}
+      healthCheck:
+        httpGet:
+          port: 8080
+          path: /v1/health
+
+  # --- Matching engine -------------------------------------------------------
+  - setup: engine
+    build:
+      base: alpine/go@1
+      buildCommands:
+        - go build -ldflags="-s -w" -o app ./cmd/engine
+      deployFiles:
+        - app
+      cache:
+        - go.mod
+        - go.sum
+    run:
+      base: alpine/go@1
+      start: ./app
+      envVariables:
+        REDIS_ADDR: ${redis_connectionString}
+        # On the mounted shared storage, not the container filesystem. Zerops
+        # mounts shared storage at /mnt/<storage-hostname>. The engine writes
+        # tmp-then-rename here and saves once more on SIGTERM.
+        SNAPSHOT_PATH: /mnt/snapshots/snapshot.json
+
+  # --- WebSocket fan-out -----------------------------------------------------
+  - setup: websocket
+    build:
+      base: alpine/go@1
+      buildCommands:
+        - go build -ldflags="-s -w" -o app ./cmd/websocket
+      deployFiles:
+        - app
+      cache:
+        - go.mod
+        - go.sum
+    run:
+      base: alpine/go@1
+      ports:
+        - port: 3001
+          httpSupport: true
+      start: ./app
+      envVariables:
+        WS_PORT: :3001
+        REDIS_ADDR: ${redis_connectionString}
+
+  # --- Market maker ----------------------------------------------------------
+  - setup: marketmaker
+    build:
+      base: alpine/go@1
+      buildCommands:
+        - go build -ldflags="-s -w" -o app ./cmd/marketmaker
+      deployFiles:
+        - app
+      cache:
+        - go.mod
+        - go.sum
+    run:
+      base: alpine/go@1
+      start: ./app
+      envVariables:
+        # Internal hostname, not the public subdomain — no need to leave the
+        # private network for this.
+        API_URL: http://${api_hostname}:8080/v1
+        TICK: 1m
+
+  # --- Frontend --------------------------------------------------------------
+  - setup: frontend
+    build:
+      base: alpine/nodejs@20
+      # Builds run from the repo root, and the Next app lives in frontend/.
+      buildCommands:
+        - cd frontend && npm ci
+        - cd frontend && npm run build
+      # The `~` operator collapses the path: frontend/~.next deploys to
+      # /var/www/.next instead of /var/www/frontend/.next. Without it the
+      # runtime start command has no package.json in its working directory.
+      deployFiles:
+        - frontend/~.next
+        - frontend/~package.json
+        - frontend/~package-lock.json
+        - frontend/~node_modules
+      cache:
+        - frontend/node_modules
+      # NEXT_PUBLIC_* are inlined into the bundle by `next build`. They have to
+      # be set HERE, at build time — setting them only under run: ships a
+      # bundle still pointing at localhost, and every request then goes to the
+      # visitor's own machine.
+      envVariables:
+        NEXT_PUBLIC_API_URL: ${api_zeropsSubdomain}/v1
+        # Resolves to https://... — SignalingManager.ts rewrites the scheme to
+        # wss://, which a browser requires for a socket opened from an HTTPS
+        # page (a plaintext ws:// is blocked as mixed content).
+        NEXT_PUBLIC_WS_URL: ${websocket_zeropsSubdomain}/v1/ws
+    run:
+      base: alpine/nodejs@20
+      ports:
+        - port: 3000
+          httpSupport: true
+      start: npm run start

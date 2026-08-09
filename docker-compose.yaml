@@ -1,0 +1,112 @@
+services:
+  db:
+    image: timescale/timescaledb-ha:pg17
+    container_name: timescaledb-17
+    environment:
+      POSTGRES_DB: cryptoXchange
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d cryptoXchange"]
+      interval: 5s
+      retries: 10
+    # Every other service already has this. Without it a host reboot leaves
+    # Postgres down while the API restart-loops against it forever, since
+    # cmd/api/main.go treats the connection failure as fatal.
+    restart: unless-stopped
+
+  redis:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    container_name: redis-crypto
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  redis-commander:
+    container_name: redis-commander
+    hostname: redis-commander
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOST=redis
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      args:
+        SERVICE: api
+    environment:
+      PORT: ":8080"
+      DB_ADDR: postgres://admin:adminpassword@db/cryptoXchange?sslmode=disable
+      REDIS_ADDR: redis:6379
+      FRONTEND_URL: http://localhost:3000
+      JWT_SECRET: change-me
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  engine:
+    build:
+      context: .
+      args:
+        SERVICE: engine
+    environment:
+      REDIS_ADDR: redis:6379
+      SNAPSHOT_PATH: /data/snapshot.json
+    volumes:
+      - engine-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  websocket:
+    build:
+      context: .
+      args:
+        SERVICE: websocket
+    environment:
+      REDIS_ADDR: redis:6379
+      WS_PORT: ":3001"
+    ports:
+      - "3001:3001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Keeps the demo markets moving: re-centres depth and prints a few trades
+  # every tick, trading only as its own mm1/mm2 accounts.
+  marketmaker:
+    build:
+      context: .
+      args:
+        SERVICE: marketmaker
+    environment:
+      API_URL: http://api:8080/v1
+      TICK: 1m
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  engine-data:

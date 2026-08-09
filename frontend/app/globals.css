@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+  /* Inputs and selects reference this via bg-[var(--background)]. It was never
+     declared, so those controls had no background at all - invisible on a text
+     input over a dark panel, but a <select> then opened its list white. */
+  --background: #0e0f14;
+
+  /* The app is dark whatever the OS says, but the browser doesn't know that and
+     drew native controls light. Needed for the parts of a select, and of the
+     scrollbars, that no author stylesheet can reach. */
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: var(--background);
+}
+
+/* The dropdown list is drawn by the OS, so a select's own classes never reach
+   it - the options have to be painted themselves. */
+select option {
+  background-color: var(--background);
+  color: #fff;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Scrollable without the scrollbar chrome, for the order book and trade list. */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

@@ -1,0 +1,6 @@
+.qodo
+bin
+.env
+snapshot.json
+./*.exe
+.gstack/

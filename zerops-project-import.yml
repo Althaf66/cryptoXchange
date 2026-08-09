@@ -1,0 +1,93 @@
+# Infrastructure for cryptoXchange. Import once with:
+#   zcli project project-import zerops-project-import.yml
+# Build/run behaviour for each runtime service lives in zerops.yml.
+project:
+  name: cryptoxchange
+  tags:
+    - exchange
+  # Project variables are inherited by every service, in both build and
+  # runtime, without any ${} reference in zerops.yml. JWT_SECRET lives here
+  # rather than per-service so the api and websocket cannot drift apart — if
+  # they ever hold different values, every token the api issues is rejected by
+  # the websocket and the browser sees an unexplained disconnect.
+  envVariables:
+    JWT_SECRET: <paste-a-64-char-random-string>
+    # Consumed by the db service's `docker run` and by the api's DB_ADDR, so it
+    # has to live at project level — the two must never drift.
+    POSTGRES_PASSWORD: <paste-another-random-string>
+
+services:
+  # --- Data ------------------------------------------------------------------
+
+  # The app hard-depends on TimescaleDB: internal/dbase/db.go calls
+  # create_hypertable and add_retention_policy, and all three kline views use
+  # time_bucket(), first() and last(). Zerops has no managed TimescaleDB and
+  # its managed postgresql cannot load the extension, so this runs the official
+  # image as a Docker service. That means a VM: slower boot, higher resource
+  # use, fixed (not min-max) resources, and no Zerops-managed backups — see the
+  # backup note in zerops.yml.
+  # The import type is `alpine/docker@26`, not the `docker@latest` the Docker
+  # docs show — that form is the zerops.yml run base, and the import schema
+  # rejects it.
+  - hostname: db
+    type: alpine/docker@26
+    priority: 10
+    # Docker services take fixed resources rather than min/max ranges, and disk
+    # can be grown later but never shrunk without recreating the service.
+    verticalAutoscaling:
+      cpu: 2
+      ram: 2
+      disk: 10
+
+  - hostname: redis
+    type: valkey:single@7.2
+    priority: 10
+
+  # The engine's snapshot must outlive the container. Without this every
+  # redeploy silently re-seeds balances while Postgres keeps the trade history —
+  # a divergence that cannot be repaired afterwards.
+  # Mounted into `engine` from the GUI after its first push; a mount cannot be
+  # attached at import time, before the service has a deploy.
+  - hostname: snapshots
+    type: shared-storage:single
+    priority: 10
+
+  # --- Runtime ---------------------------------------------------------------
+
+  # Pinned to one container on purpose. The engine holds the entire order book
+  # and every balance in memory and consumes Redis with a blocking BRPop, so a
+  # second instance would receive a different subset of orders, fork the
+  # balances, and race the first for the same snapshot file.
+  - hostname: engine
+    type: alpine/go@1
+    minContainers: 1
+    maxContainers: 1
+
+  # Also pinned, and for a less obvious reason: cmd/api/main.go starts both the
+  # kline processor and the cron loop inside the API process. Two containers
+  # means two REFRESH MATERIALIZED VIEW loops fighting for the same exclusive
+  # lock, and BRPop spreading db_processor work across consumers — which breaks
+  # the FIFO ordering that order create-then-fill updates depend on.
+  # Split those two goroutines into their own service before raising this.
+  - hostname: api
+    type: alpine/go@1
+    minContainers: 1
+    maxContainers: 1
+    enableSubdomainAccess: true
+
+  - hostname: websocket
+    type: alpine/go@1
+    minContainers: 1
+    maxContainers: 2
+    enableSubdomainAccess: true
+
+  # One ladder per market. A second instance doubles the order flow into it.
+  - hostname: marketmaker
+    type: alpine/go@1
+    minContainers: 1
+    maxContainers: 1
+
+  - hostname: frontend
+    type: alpine/nodejs@20
+    minContainers: 1
+    enableSubdomainAccess: true
