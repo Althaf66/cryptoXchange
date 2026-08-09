@@ -1,8 +1,19 @@
 # CryptoXchange 📊
 
-A real spot crypto exchange, minus the crypto. Place a limit order, watch it hit
-the book, get filled by a live counterparty, see the trade print on the tape
-and the candle move — all in seconds.
+CryptoXchange is a virtual trading environment, It replicates the conditions of live markets, including price movements, spreads, and trading tools, but without the risk of losing actual money.
+
+It is a spot exchange with an actual matching engine behind it. It matches limit and market orders by price-time priority, fills across multiple price levels.
+
+Placing an order locks the funds it needs, canceling releases them, and filling at a better price than requested refunds the difference automatically.
+
+The whole book lives in memory, the engine snapshots itself to disk every 5 seconds and on shutdown, so a restart doesn't wipe out open orders or balances. Trades flow out over Redis pub/sub to a WebSocket service that fans out live depth and trade updates to the browser, and separately into TimescaleDB, where continuous rollups turn them into 1-minute and 1-hour candles for a TradingView-style chart.
+
+Deployed at Zerops
+
+## 📸 Screenshot
+
+![main_page](./script/main_page.png)
+
 
 ## 📋 Table of Contents
 
