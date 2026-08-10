@@ -39,13 +39,13 @@ CryptoXchange is a full spot exchange built from scratch: a single-threaded
 price-time matching engine, a real balance ledger (funds actually lock and
 unlock), live order book/trade streams over WebSocket, and a Next.js trading
 UI with TradingView-style candlestick charts. There's no mocked backend and no
-fake order book — every fill, partial fill, and balance change comes out of
+fake order book. Every fill, partial fill, and balance change comes out of
 the same engine you'd need for a real exchange. It's built as a demo/learning
 project, so it ships with instant demo users instead of a signup flow and a
 market maker bot that keeps the book from looking dead.
 
-### 🎥 Demo Video
-   https://www.loom.com/share/bbcc2ea1986a43c394a52d03af7973ef
+<!-- ### 🎥 Demo Video
+   https://www.loom.com/share/bbcc2ea1986a43c394a52d03af7973ef -->
 
 ## ✨ Features
 
